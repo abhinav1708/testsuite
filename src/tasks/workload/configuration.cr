@@ -84,9 +84,11 @@ task "resource_requests" do |t, args|
     task_response = CNFManager.workload_resource_test(args, config) do |resource, container, initialized|
       test_passed = true
       resource_ref = "#{resource[:kind]}/#{resource[:name]}"
+      cpu_request_value=1
+      memory_request_value=1024
       begin
         cpu_request = container.as_h["resources"].as_h["requests"].as_h["cpu"]
-
+        Log.info { "CPU Request: #{cpu_request}" }
         if cpu_request.is_a?(String) && cpu_request.end_with?("m")
           cpu_request_value = cpu_request.to_i / 1000.0
         elsif cpu_request.is_a?(String)
@@ -94,8 +96,9 @@ task "resource_requests" do |t, args|
         else
           cpu_request_value = cpu_request.to_f
         end
-
+        Log.info { "CPU Request Value: #{cpu_request_value}" }
         memory_request = container.as_h["resources"].as_h["requests"].as_h["memory"]
+        Log.info { "Memory Request: #{memory_request}" }
 
         if memory_request.is_a?(String) && memory_request.end_with?("Mi")
           memory_request_value = memory_request.to_i
@@ -104,7 +107,7 @@ task "resource_requests" do |t, args|
         else
           memory_request_value = memory_request.to_i
         end
-
+        Log.info { "Memory Request value: #{memory_request_value}" }
         if cpu_request_value > 0.5 || memory_request_value > 512
           test_passed = false
           stdout_failure("Resource requests for container #{container.as_h["name"].as_s} part of #{resource_ref} in #{resource[:namespace]} namespace exceed limits (CPU: #{cpu_request}, Memory: #{memory_request})")
