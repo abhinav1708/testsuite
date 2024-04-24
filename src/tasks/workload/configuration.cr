@@ -92,9 +92,9 @@ task "resource_requests" do |t, args|
         if cpu_request.is_a?(String) && cpu_request.end_with?("m")
           cpu_request_value = cpu_request.to_i / 1000.0
         elsif cpu_request.is_a?(String)
-          cpu_request_value = cpu_request.to_f
+          cpu_request_value = cpu_request.to_s
         else
-          cpu_request_value = cpu_request.to_f
+          cpu_request_value = cpu_request.to_s
         end
         Log.info { "CPU Request Value: #{cpu_request_value}" }
         memory_request = container.as_h["resources"].as_h["requests"].as_h["memory"]
