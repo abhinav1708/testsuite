@@ -77,6 +77,56 @@ task "resource_limits" do |t, args|
   end
 end
 
+desc "Check if resource requests are less than 0.5 CPU and 512 MB memory"
+task "resource_requests" do |t, args|
+  CNFManager::Task.task_runner(args, task: t) do |args, config|
+    resp = ""
+    task_response = CNFManager.workload_resource_test(args, config) do |resource, container, initialized|
+      test_passed = true
+      resource_ref = "#{resource[:kind]}/#{resource[:name]}"
+      begin
+        cpu_request = container.as_h["resources"].as_h["requests"].as_h["cpu"]
+
+        if cpu_request.is_a?(String) && cpu_request.end_with?("m")
+          cpu_request_value = cpu_request.to_i / 1000.0
+        elsif cpu_request.is_a?(String)
+          cpu_request_value = cpu_request.to_f
+        else
+          cpu_request_value = cpu_request.to_f
+        end
+
+        memory_request = container.as_h["resources"].as_h["requests"].as_h["memory"]
+
+        if memory_request.is_a?(String) && memory_request.end_with?("Mi")
+          memory_request_value = memory_request.to_i
+        elsif memory_request.is_a?(String) && memory_request.end_with?("Gi")
+          memory_request_value = memory_request.to_i * 1024
+        else
+          memory_request_value = memory_request.to_i
+        end
+
+        if cpu_request_value > 0.5 || memory_request_value > 512
+          test_passed = false
+          stdout_failure("Resource requests for container #{container.as_h["name"].as_s} part of #{resource_ref} in #{resource[:namespace]} namespace exceed limits (CPU: #{cpu_request}, Memory: #{memory_request})")
+        end
+      rescue ex
+        Log.for(t.name).error { ex.message } if check_verbose(args)
+        test_passed = false
+        stdout_failure("Error occurred while checking resource requests for container #{container.as_h["name"].as_s} part of #{resource_ref} in #{resource[:namespace]} namespace")
+      end
+      Log.for(t.name).info { "Resource #{resource_ref} passed resource request checks?: #{test_passed}" }
+      test_passed
+    end
+    Log.for(t.name).info { "Workload resource task response: #{task_response}" }
+    if task_response
+      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Passed, "Resource requests within limits")
+    else
+      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Failed, "Resource requests exceed limits")
+    end
+  end
+end
+
+
 desc "Check if the CNF installs resources in the default namespace"
 task "default_namespace" do |t, args|
   CNFManager::Task.task_runner(args, task: t) do |args, config|
