@@ -87,17 +87,17 @@ task "resource_requests" do |t, args|
       cpu_request_value=1
       memory_request_value=1024
       begin
-        cpu_request = container.as_h["resources"].as_h["requests"].as_h["cpu"]
+        cpu_request = container.as_h["resources"].as_h["requests"].as_h["cpu"].as_s
         Log.info { "CPU Request: #{cpu_request}" }
         if cpu_request.is_a?(String) && cpu_request.end_with?("m")
           cpu_request_value = cpu_request.to_i / 1000.0
         elsif cpu_request.is_a?(String)
-          cpu_request_value = cpu_request.to_s
+          cpu_request_value = cpu_request.to_i
         else
-          cpu_request_value = cpu_request.to_s
+          cpu_request_value = cpu_request.to_i
         end
         Log.info { "CPU Request Value: #{cpu_request_value}" }
-        memory_request = container.as_h["resources"].as_h["requests"].as_h["memory"]
+        memory_request = container.as_h["resources"].as_h["requests"].as_h["memory"].as_s
         Log.info { "Memory Request: #{memory_request}" }
 
         if memory_request.is_a?(String) && memory_request.end_with?("Mi")
