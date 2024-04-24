@@ -58,7 +58,7 @@ desc "Check if the CNF is running containers with resource limits?"
 task "resource_limits" do |t, args|
   CNFManager::Task.task_runner(args, task: t) do |args, config|
     Kyverno.install
-    policy_path = Kyverno.best_practice_policy("require-pod-requests-limits/require-pod-requests-limits.yaml")
+    policy_path = Kyverno.best_practice_policy("require_pod_requests_limits/require_pod_requests_limits.yaml")
     failures = Kyverno::PolicyAudit.run(policy_path, EXCLUDE_NAMESPACES)
 
     resource_keys = CNFManager.workload_resource_keys(args, config)
