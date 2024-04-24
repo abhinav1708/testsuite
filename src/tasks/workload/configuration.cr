@@ -90,7 +90,7 @@ task "resource_requests" do |t, args|
         cpu_request = container.as_h["resources"].as_h["requests"].as_h["cpu"].as_s
         Log.info { "CPU Request: #{cpu_request}" }
         if cpu_request.is_a?(String) && cpu_request.ends_with?("m")
-          cpu_request_value = cpu_request.to_i / 1000.0
+          cpu_request_value = (cpu_request.gsub("m","")).to_i / 1000.0
         elsif cpu_request.is_a?(String)
           cpu_request_value = cpu_request.to_i
         else
@@ -101,9 +101,9 @@ task "resource_requests" do |t, args|
         Log.info { "Memory Request: #{memory_request}" }
 
         if memory_request.is_a?(String) && memory_request.ends_with?("Mi")
-          memory_request_value = memory_request.to_i
+          memory_request_value = (memory_request).gsub("Mi","").to_i
         elsif memory_request.is_a?(String) && memory_request.ends_with?("Gi")
-          memory_request_value = memory_request.to_i * 1024
+          memory_request_value = (memory_request.gsub("Gi","")).to_i * 1024
         else
           memory_request_value = memory_request.to_i
         end
