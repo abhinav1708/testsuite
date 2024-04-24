@@ -54,6 +54,29 @@ task "require_labels" do |t, args|
   end
 end
 
+desc "Check if the CNF is running containers with resource limits?"
+task "resource_limits" do |t, args|
+  CNFManager::Task.task_runner(args, task: t) do |args, config|
+    Kyverno.install
+    policy_path = Kyverno.best_practice_policy("require-pod-requests-limits/require-pod-requests-limits.yaml")
+    failures = Kyverno::PolicyAudit.run(policy_path, EXCLUDE_NAMESPACES)
+
+    resource_keys = CNFManager.workload_resource_keys(args, config)
+    failures = Kyverno.filter_failures_for_cnf_resources(resource_keys, failures)
+
+    if failures.size == 0
+      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Passed, "Pods have the resource limtis")
+    else
+      failures.each do |failure|
+        failure.resources.each do |resource|
+          puts "#{resource.kind} #{resource.name} in #{resource.namespace} namespace failed. #{failure.message}".colorize(:red)
+        end
+      end
+      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Failed, "Pods should have the resource limits.")
+    end
+  end
+end
+
 desc "Check if the CNF installs resources in the default namespace"
 task "default_namespace" do |t, args|
   CNFManager::Task.task_runner(args, task: t) do |args, config|
