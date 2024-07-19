@@ -4,10 +4,14 @@ on:
     paths:
       - '**'
       - '!**.md'
+      - '!docs/*'
+      - '!doc-lint/*'
   pull_request:
     paths:
       - '**'
       - '!**.md'
+      - '!docs/*'
+      - '!doc-lint/*'
 jobs:
   tests:
     name: Fetch Matrix Tests
@@ -72,7 +76,7 @@ jobs:
         containerdConfigPatches:
         - |-
           [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
-            endpoint = ["http://139.178.70.81:80"]
+            endpoint = ["http://10.200.142.204:80"]
           [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry:5000"]
             endpoint = ["http://localhost:5000"]
           [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry.default.svc.cluster.local:5000"]
@@ -102,7 +106,6 @@ jobs:
         apiVersion: kind.x-k8s.io/v1alpha4
         nodes:
         - role: control-plane
-          image: kindest/node:v1.23.17@sha256:14d0a9a892b943866d7e6be119a06871291c517d279aedb816a4b4bc0ec0a5b3
         containerdConfigPatches:
           - |-
             [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry:5000"]
@@ -168,7 +171,7 @@ jobs:
         export PROTECTED_DOCKERHUB_EMAIL=${EMAIL_ARRAY[$RANDOMIZER]}
         export PROTECTED_IMAGE_REPO=${IMAGE_ARRAY[$RANDOMIZER]}
 
-        docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
+        [[ ! -z  "$DOCKERHUB_USERNAME" && ! -z "$DOCKERHUB_PASSWORD" ]] && docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
 
         source cluster.env
         export KUBECONFIG=$(pwd)/$CLUSTER.conf
@@ -203,6 +206,7 @@ jobs:
         kind delete cluster --name $CLUSTER
         docker container prune -f || true
         docker volume prune -f || true
+      continue-on-error: true
         
   chaos:
     name: Chaos & Oran Tests
@@ -241,7 +245,6 @@ jobs:
         apiVersion: kind.x-k8s.io/v1alpha4
         nodes:
         - role: control-plane
-          image: kindest/node:v1.23.17@sha256:14d0a9a892b943866d7e6be119a06871291c517d279aedb816a4b4bc0ec0a5b3
         containerdConfigPatches:
         - |-
           [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry:5000"]
@@ -366,7 +369,6 @@ jobs:
         apiVersion: kind.x-k8s.io/v1alpha4
         nodes:
         - role: control-plane
-          image: kindest/node:v1.23.17@sha256:14d0a9a892b943866d7e6be119a06871291c517d279aedb816a4b4bc0ec0a5b3
         containerdConfigPatches:
         - |-
           [plugins."io.containerd.grpc.v1.cri".registry.mirrors."registry:5000"]
@@ -395,7 +397,7 @@ jobs:
         ./cnf-testsuite setup
         wget -O cnf-testsuite.yml https://raw.githubusercontent.com/cnti-testcatalog/testsuite/main/example-cnfs/coredns/cnf-testsuite.yml
         ./cnf-testsuite cnf_setup cnf-config=./cnf-testsuite.yml
-        LOG_LEVEL=info ./cnf-testsuite all ~compatibility ~resilience ~reasonable_startup_time ~reasonable_image_size ~platform ~volume_hostpath_not_found ~privileged ~increase_capacity ~decrease_capacity ~install_script_helm ~helm_chart_valid ~helm_chart_published verbose
+        LOG_LEVEL=info ./cnf-testsuite all ~compatibility ~resilience ~reasonable_startup_time ~reasonable_image_size ~platform ~privileged ~increase_capacity ~decrease_capacity ~install_script_helm ~helm_chart_valid ~helm_chart_published verbose
     - name: Delete Cluster
       if: ${{ always() }}
       run: |
@@ -404,6 +406,7 @@ jobs:
         docker container prune -f || true
         docker volume prune -f || true
         docker network prune -f || true
+      continue-on-error: true
 
   test_binary_microservice:
     name: Test Binary Without Source(microservice)
@@ -469,7 +472,7 @@ jobs:
         ./cnf-testsuite setup
         wget -O cnf-testsuite.yml https://raw.githubusercontent.com/cnti-testcatalog/testsuite/main/example-cnfs/coredns/cnf-testsuite.yml
         ./cnf-testsuite cnf_setup cnf-config=./cnf-testsuite.yml
-        LOG_LEVEL=info ./cnf-testsuite all ~resilience ~compatibility ~pod_network_latency ~platform ~volume_hostpath_not_found ~privileged ~increase_capacity ~decrease_capacity ~ip_addresses ~liveness ~readiness ~rolling_update ~rolling_downgrade ~rolling_version_change ~nodeport_not_used ~hostport_not_used ~hardcoded_ip_addresses_in_k8s_runtime_configuration ~install_script_helm ~helm_chart_valid ~helm_chart_published ~rollback ~secrets_used ~immutable_configmap verbose
+        LOG_LEVEL=info ./cnf-testsuite all ~resilience ~compatibility ~pod_network_latency ~platform ~privileged ~increase_capacity ~decrease_capacity ~ip_addresses ~liveness ~readiness ~rolling_update ~rolling_downgrade ~rolling_version_change ~nodeport_not_used ~hostport_not_used ~hardcoded_ip_addresses_in_k8s_runtime_configuration ~install_script_helm ~helm_chart_valid ~helm_chart_published ~rollback ~secrets_used ~immutable_configmap verbose
     - name: Delete Cluster
       if: ${{ always() }}
       run: |
@@ -478,6 +481,7 @@ jobs:
         docker container prune -f || true
         docker volume prune -f || true
         docker network prune -f || true
+      continue-on-error: true
 
   test_binary_all:
     name: Test Binary Without Source(all)
@@ -552,6 +556,7 @@ jobs:
         docker container prune -f || true
         docker volume prune -f || true
         docker network prune -f || true
+      continue-on-error: true
 
   release:
     name: Publish Release

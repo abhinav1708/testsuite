@@ -15,6 +15,7 @@ module CNFManager
     Neutral
     Pass5
     Pass3
+    Error
 
     def to_basic()
       case self
@@ -159,6 +160,8 @@ module CNFManager
         #   points =points_yml.find {|x| x["name"] == "default_scoring"}
         #   resp = points[field_name].as_i if points
         # end
+      when CNFManager::ResultStatus::Error
+        resp = 0
       else
         resp = dynamic_task_points(task, status.to_s.downcase)
       end
@@ -183,6 +186,16 @@ module CNFManager
       end
     end
 
+    def self.tasks_by_tag_intersection(tags)
+      tasks = tags.reduce([] of String) do |acc, t| 
+        if acc.empty?
+          acc = tasks_by_tag(t)
+        else
+          acc = acc & tasks_by_tag(t)
+        end
+      end
+    end
+
     # Gets the total assigned points for a tag (or all total points) from the results file
     # Usesful for calculation categories total
     def self.total_points(tag=nil)
@@ -191,13 +204,7 @@ module CNFManager
 
     def self.total_points(tags : Array(String) = [] of String)
       if !tags.empty?
-        tasks = tags.reduce([] of String) do |acc, t| 
-          if acc.empty?
-            acc = tasks_by_tag(t)
-          else
-            acc = acc & tasks_by_tag(t)
-          end
-        end
+        tasks = tasks_by_tag_intersection(tags)
       else
         tasks = all_task_test_names
       end
@@ -225,13 +232,7 @@ module CNFManager
     def self.total_passed(tags : Array(String) = [] of String)
       Log.debug { "total_passed: #{tags}" }
       if !tags.empty?
-        tasks = tags.reduce([] of String) do |acc, t| 
-          if acc.empty?
-            acc = tasks_by_tag(t)
-          else
-            acc = acc & tasks_by_tag(t)
-          end
-        end
+        tasks = tasks_by_tag_intersection(tags)
       else
         tasks = all_task_test_names
       end
@@ -276,13 +277,7 @@ module CNFManager
     def self.total_max_points(tags : Array(String) = [] of String)
       Log.debug { "total_max_points tag: #{tags}" }
       if !tags.empty?
-        tasks = tags.reduce([] of String) do |acc, t| 
-          if acc.empty?
-            acc = tasks_by_tag(t)
-          else
-            acc = acc & tasks_by_tag(t)
-          end
-        end
+        tasks = tasks_by_tag_intersection(tags)
       else
         tasks = all_task_test_names
       end
@@ -349,14 +344,7 @@ module CNFManager
     def self.total_max_passed(tags : Array(String) = [] of String)
       Log.debug { "total_max_passed tag: #{tags}" }
       if !tags.empty?
-        tasks = tags.reduce([] of String) do |acc, t| 
-          Log.info { "total_max_passed acc: #{acc}" }
-          if acc.empty?
-            acc = tasks_by_tag(t)
-          else
-            acc = acc & tasks_by_tag(t)
-          end
-        end
+        tasks = tasks_by_tag_intersection(tags)
       else
         tasks = all_task_test_names
       end
@@ -436,7 +424,7 @@ module CNFManager
       cmd = "#{Process.executable_path} #{ARGV.join(" ")}"
       Log.info {"cmd: #{cmd}"}
       end_time = Time.utc
-      task_runtime = (end_time - start_time).milliseconds
+      task_runtime = (end_time - start_time)
 
       Log.for("#{task}").info { "task_runtime=#{task_runtime}; start_time=#{start_time}; end_time:#{end_time}" }
 
@@ -452,7 +440,7 @@ module CNFManager
           points: points,
           start_time: start_time,
           end_time: end_time,
-          task_runtime_milliseconds: task_runtime
+          task_runtime: "#{task_runtime}"
         }
         result_items << YAML.parse(task_result_info.to_yaml)
       else
@@ -475,7 +463,7 @@ module CNFManager
                    exit_code: results["exit_code"],
                    items: result_items}, f)
       end
-      Log.info { "upsert_task: task: #{task} has status: #{status} and is awarded: #{points} points. Runtime: #{task_runtime} seconds" }
+      Log.info { "upsert_task: task: #{task} has status: #{status} and is awarded: #{points} points. Runtime: #{task_runtime}" }
     end
 
     def self.failed_task(task, msg)

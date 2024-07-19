@@ -7,7 +7,7 @@ require "../utils/utils.cr"
 require "kubectl_client"
 
 desc "The CNF test suite checks if state is stored in a custom resource definition or a separate database (e.g. etcd) rather than requiring local storage.  It also checks to see if state is resilient to node failure"
-task "state", ["volume_hostpath_not_found", "no_local_volume_configuration", "elastic_volumes", "database_persistence", "node_drain"] do |_, args|
+task "state", ["no_local_volume_configuration", "elastic_volumes", "database_persistence", "node_drain"] do |_, args|
   stdout_score("state")
   case "#{ARGV.join(" ")}" 
   when /state/
@@ -289,44 +289,28 @@ task "node_drain", ["install_litmus"] do |t, args|
             litmus_nodes = node_names - ["#{litmus_nodeName}"]
             Log.info { "Schedulable Litmus Nodes: #{litmus_nodes}" }
 
-            HttpHelper.download("#{LitmusManager::ONLINE_LITMUS_OPERATOR}","#{LitmusManager::DOWNLOADED_LITMUS_FILE}")
-            if args.named["offline"]?
-                 Log.info {"Re-Schedule Litmus in offline mode"}
-                 LitmusManager.add_node_selector(litmus_nodes[0], airgap: true)
-               else
-                 Log.info {"Re-Schedule Litmus in online mode"}
-                 LitmusManager.add_node_selector(litmus_nodes[0], airgap: false)
-            end
+            HttpHelper.download("#{LitmusManager::LITMUS_OPERATOR}","#{LitmusManager::DOWNLOADED_LITMUS_FILE}")
+            Log.info {"Re-Schedule Litmus"}
+            LitmusManager.add_node_selector(litmus_nodes[0])
             KubectlClient::Apply.file("#{LitmusManager::MODIFIED_LITMUS_FILE}")
             KubectlClient::Get.resource_wait_for_install(kind: "Deployment", resource_name: "chaos-operator-ce", wait_count: 180, namespace: "litmus")
           end
 
-          if args.named["offline"]?
-            Log.info {"install resilience offline mode"}
-            AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/node-drain-experiment.yaml")
-            KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/node-drain-experiment.yaml")
-            KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/node-drain-rbac.yaml")
-          else
-            # experiment_url = "https://hub.litmuschaos.io/api/chaos/#{LitmusManager::Version}?file=charts/generic/node-drain/experiment.yaml"
-            # https://raw.githubusercontent.com/litmuschaos/chaos-charts/v2.14.x/charts/generic/pod-network-latency/experiment.yaml
-            # https://raw.githubusercontent.com/litmuschaos/chaos-charts/v2.14.x/charts/generic/node-drain/experiment.yaml 
-            experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/charts/generic/node-drain/experiment.yaml"
-            # rbac_url = "https://hub.litmuschaos.io/api/chaos/#{LitmusManager::Version}?file=charts/generic/node-drain/rbac.yaml"
-            rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/charts/generic/node-drain/rbac.yaml"
+          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/node-drain/fault.yaml"
+          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/node-drain/rbac.yaml"
 
-            experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-            KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
   
-            rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-            rbac_yaml = File.read(rbac_path)
-            rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-            File.write(rbac_path, rbac_yaml)
-            KubectlClient::Apply.file(rbac_path)
-          end
+          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+          rbac_yaml = File.read(rbac_path)
+          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+          File.write(rbac_path, rbac_yaml)
+          KubectlClient::Apply.file(rbac_path)
+
           KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
           chaos_experiment_name = "node-drain"
-          total_chaos_duration = "90"
           test_name = "#{resource["name"]}-#{Random::Secure.hex(4)}"
           chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
 
@@ -336,14 +320,13 @@ task "node_drain", ["install_litmus"] do |t, args|
             app_namespace,
             "#{deployment_label}",
             "#{deployment_label_value}",
-            total_chaos_duration,
             app_nodeName
           ).to_s
           Log.for("node_drain").info { "Chaos test name: #{test_name}; Experiment name: #{chaos_experiment_name}; Label #{deployment_label}=#{deployment_label_value}; namespace: #{app_namespace}" }
 
           File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
           KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-          LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+          LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
           test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
         end
 
@@ -475,40 +458,6 @@ task "database_persistence" do |t, args|
   # TODO Match and check if the provisioning driver used is of an elastic volume type.
   # TODO If using static provisioning, find the and inspect the associated Persistent Volume and determine the provisioning driver being used -> 
   # TODO Match and check if the provisioning driver used is of an elastic volume type.
-end
-
-desc "Does the CNF use a non-cloud native data store: hostPath volume"
-task "volume_hostpath_not_found" do |t, args|
-  CNFManager::Task.task_runner(args, task: t) do |args, config|
-    destination_cnf_dir = config.cnf_config[:destination_cnf_dir]
-    task_response = CNFManager.cnf_workload_resources(args, config) do | resource|
-      hostPath_found = nil 
-      begin
-        # TODO check to see if volume is actually mounted.  Check to see if mount (without volume) has host path as well
-        volumes = resource.dig?("spec", "template", "spec", "volumes")
-        if volumes
-          hostPath_not_found = volumes.as_a.none? do |volume| 
-            if volume.as_h["hostPath"]?
-                true
-            end
-          end
-        else
-          hostPath_not_found = true
-        end
-      rescue ex
-        VERBOSE_LOGGING.error ex.message if check_verbose(args)
-        puts "Rescued: On resource #{resource["metadata"]["name"]?} of kind #{resource["kind"]}, volumes not found.".colorize(:yellow)
-        hostPath_not_found = true
-      end
-      hostPath_not_found 
-    end
-
-    if task_response.any?(false)
-      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Failed, "hostPath volumes found (ভ_ভ) ރ")
-    else
-      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Passed, "hostPath volumes not found 🖥️")
-    end
-  end
 end
 
 desc "Does the CNF use a non-cloud native data store: local volumes on the node?"

@@ -6,9 +6,7 @@ require "totem"
 require "../utils/utils.cr"
 
 desc "The CNF Test Suite program certifies a CNF based on passing some percentage of essential tests."
-#task "cert", ["cert_security"] do  |_, args|
 task "cert", ["version", "cert_compatibility", "cert_state", "cert_security", "cert_configuration", "cert_observability", "cert_microservice", "cert_resilience"] do  |_, args|
-# task "cert", ["cert_compatibility", "cert_state", "cert_security", "cert_configuration", "cert_observability", "cert_microservice", "cert_resilience", "latest_tag", "selinux_options", "single_process_type", "node_drain","liveness", "readiness", "log_output", "container_sock_mounts", "privileged_containers", "non_root_containers", "resource_policies", "hostport_not_used", "hardcoded_ip_addresses_in_k8s_runtime_configuration"] do  |_, args|
   VERBOSE_LOGGING.info "cert" if check_verbose(args)
 
   stdout_success "RESULTS SUMMARY"
@@ -18,12 +16,14 @@ task "cert", ["version", "cert_compatibility", "cert_state", "cert_security", "c
   max_passed = CNFManager::Points.total_max_passed("cert")
   essential_total_passed = CNFManager::Points.total_passed("essential")
   essential_max_passed = CNFManager::Points.total_max_passed("essential")
+  max_passed = essential_max_passed if args.raw.includes? "essential"
   stdout_success "  - #{total_passed} of #{max_passed} total tests passed"
 
   if essential_total_passed >= ESSENTIAL_PASSED_THRESHOLD
     stdout_success "  - #{essential_total_passed} of #{essential_max_passed} essential tests passed"
   else
-    stdout_failure "FAILED: #{essential_total_passed} of #{essential_max_passed} essential tests passed"
+    stdout_failure "  - #{essential_total_passed} of #{essential_max_passed} essential tests passed"
+    stdout_failure "Certification failed! Passing threshold is #{ESSENTIAL_PASSED_THRESHOLD} essential tests"
   end
 
   update_yml("#{CNFManager::Points::Results.file}", "points", total)
@@ -44,4 +44,3 @@ task "cert", ["version", "cert_compatibility", "cert_state", "cert_security", "c
   end
   stdout_info "Results have been saved to #{CNFManager::Points::Results.file}".colorize(:green)
 end
-

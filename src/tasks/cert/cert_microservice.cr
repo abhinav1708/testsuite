@@ -7,18 +7,22 @@ require "../utils/utils.cr"
 require "docker_client"
 require "halite"
 require "totem"
+require "./cert_utils.cr"
 
 desc "The CNF test suite checks to see if CNFs follows microservice principles"
-task "cert_microservice", ["cert_microservice_title","reasonable_image_size", "reasonable_startup_time", "single_process_type", "service_discovery", "shared_database", "zombie_handled", "sig_term_handled", "specialized_init_system"] do |_, args|
-# task "cert_microservice", ["cert_microservice_title", "reasonable_image_size", "reasonable_startup_time", "service_discovery"] do |_, args|
-  # stdout_score("microservice")
-  stdout_score(["microservice", "cert"], "microservice")
+task "cert_microservice" do |t, args|
+  puts "Microservice Tests".colorize(Colorize::ColorRGB.new(0, 255, 255))
+
+  exclude = get_excluded_tasks(args)
+  essential_only = args.raw.includes? "essential"
+  tags = ["microservice", "cert"]
+  tags << "essential" if essential_only
+
+  invoke_tasks_by_tag_list(t, tags, exclude_tasks: exclude)
+
+  cert_stdout_score(tags, "microservice", exclude_warning: !exclude.empty?)
   case "#{ARGV.join(" ")}" 
   when /cert_microservice/
     stdout_info "Results have been saved to #{CNFManager::Points::Results.file}".colorize(:green)
   end
-end
-
-task "cert_microservice_title" do |_, args|
-  puts "Microservice Tests".colorize(Colorize::ColorRGB.new(0, 255, 255))
 end

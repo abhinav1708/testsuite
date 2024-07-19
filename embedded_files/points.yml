@@ -38,7 +38,7 @@
   pass: 100
 - name: cni_compatible
   emoji: "🔓🔑"
-  tags: [compatibility, dynamic, workload, cert, normal]
+  tags: [compatibility, dynamic, workload]
 # - name: cni_spec 
 #  tags: compatibility, dynamic
 #- name: api_snoop_alpha 
@@ -197,10 +197,6 @@
 # - name: chaos_container_kill
 #   tags: resilience, dynamic, workload
 
-- name: volume_hostpath_not_found
-  emoji: "💾"
-  tags: [state, dynamic, workload, essential, cert]
-  pass: 100
 - name: no_local_volume_configuration
   emoji: "💾"
   tags: [state, dynamic, workload, cert, bonus]
@@ -249,9 +245,6 @@
 - name: cluster_admin
   emoji: "🔓🔑"
   tags: ["platform", "platform:security", "dynamic"]
-- name: exposed_dashboard
-  emoji: "🔓🔑"
-  tags: ["platform", "platform:security", "dynamic"]
 - name: kube_state_metrics
   emoji: "📶☠"
   tags: [platform, "platform:observability", dynamic]
@@ -289,7 +282,12 @@
   pass: 1 
   fail: 0 
 
-- name: resource_policies
+- name: cpu_limits
+  emoji: "🔓🔑"
+  tags: [security, dynamic, workload, cert, essential]
+  pass: 100
+
+- name: memory_limits
   emoji: "🔓🔑"
   tags: [security, dynamic, workload, cert, essential]
   pass: 100

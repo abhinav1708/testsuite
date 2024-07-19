@@ -346,34 +346,43 @@ task "hardcoded_ip_addresses_in_k8s_runtime_configuration" do |t, args|
     helm_directory = config.cnf_config[:helm_directory]
     release_name = config.cnf_config[:release_name]
     destination_cnf_dir = config.cnf_config[:destination_cnf_dir]
+    helm_chart_yml_path = "#{destination_cnf_dir}/helm_chart.yml"
     current_dir = FileUtils.pwd
     helm = Helm::BinarySingleton.helm
     VERBOSE_LOGGING.info "Helm Path: #{helm}" if check_verbose(args)
 
     KubectlClient::Create.command("namespace hardcoded-ip-test")
     unless helm_chart.empty?
-      if args.named["offline"]?
-        info = AirGap.tar_info_by_config_src(helm_chart)
-        Log.for(t.name).info { "airgapped mode info: #{info}" }
-        helm_chart = info[:tar_name]
-      end
-      helm_install = Helm.install("--namespace hardcoded-ip-test hardcoded-ip-test #{helm_chart} --dry-run --debug > #{destination_cnf_dir}/helm_chart.yml")
+      helm_install = Helm.install("--namespace hardcoded-ip-test hardcoded-ip-test #{helm_chart} --dry-run --debug > #{helm_chart_yml_path}")
     else
-      helm_install = Helm.install("--namespace hardcoded-ip-test hardcoded-ip-test #{destination_cnf_dir}/#{helm_directory} --dry-run --debug > #{destination_cnf_dir}/helm_chart.yml")
+      helm_install = Helm.install("--namespace hardcoded-ip-test hardcoded-ip-test #{destination_cnf_dir}/#{helm_directory} --dry-run --debug > #{helm_chart_yml_path}")
       VERBOSE_LOGGING.info "helm_directory: #{helm_directory}" if check_verbose(args)
     end
-
-    ip_search = File.read_lines("#{destination_cnf_dir}/helm_chart.yml").take_while{|x| x.match(/NOTES:/) == nil}.reduce([] of String) do |acc, x|
-      (x.match(/([0-9]{1,3}[\.]){3}[0-9]{1,3}/) &&
-       x.match(/([0-9]{1,3}[\.]){3}[0-9]{1,3}/).try &.[0] != "0.0.0.0" &&
-       x.match(/([0-9]{1,3}[\.]){3}[0-9]{1,3}/).try &.[0] != "127.0.0.1") ? acc << x : acc
+    
+    found_violations = [] of NamedTuple(line_number: Int32, line: String)
+    line_number = 1
+    File.open("#{helm_chart_yml_path}") do |file|
+      file.each_line do |line|
+        if line.matches?(/NOTES:/)
+          break
+        elsif matches = line.scan(/([0-9]{1,3}[\.]){3}[0-9]{1,3}/)
+          matches.each do |match|
+            unless match[0] == "0.0.0.0" || match[0] == "127.0.0.1"
+              found_violations << {line_number: line_number, line: line.strip}
+            end
+          end
+        end
+        line_number += 1
+      end
     end
 
-    VERBOSE_LOGGING.info "IPs: #{ip_search}" if check_verbose(args)
-
-    if ip_search.empty?
+    if found_violations.empty?
       CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Passed, "No hard-coded IP addresses found in the runtime K8s configuration")
     else
+      stdout_failure("Hard-coded IP addresses found in #{helm_chart_yml_path}")
+      found_violations.each do |violation|
+        stdout_failure("  * Line #{violation[:line_number]}: #{violation[:line]}")
+      end
       CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Failed, "Hard-coded IP addresses found in the runtime K8s configuration")
     end
   rescue
@@ -685,17 +694,10 @@ task "alpha_k8s_apis" do |t, args|
     ensure_kubeconfig!
     kubeconfig_orig = ENV["KUBECONFIG"]
 
-    # No offline support for this task for now
-    if args.named["offline"]? && args.named["offline"]? != "false"
-      next CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Skipped, "alpha_k8s_apis chaos test skipped")
-    end
-
     # Get kubernetes version of the current server.
     # This is used to setup kind with same k8s image version.
     k8s_server_version = KubectlClient.server_version
 
-    # Online mode workflow below
-    offline = false
     cluster_name = "apisnooptest"
     # Ensure any old cluster is deleted
     KindManager.new.delete_cluster(cluster_name)
@@ -705,7 +707,7 @@ task "alpha_k8s_apis" do |t, args|
     Log.info { "apisnoop cluster kubeconfig: #{cluster.kubeconfig}" }
     ENV["KUBECONFIG"] = "#{cluster.kubeconfig}"
 
-    cnf_setup_complete = CNFManager.cnf_to_new_cluster(config, cluster.kubeconfig, offline)
+    cnf_setup_complete = CNFManager.cnf_to_new_cluster(config, cluster.kubeconfig)
 
     # CNF setup failed on kind cluster. Inform in test output.
     unless cnf_setup_complete
@@ -754,8 +756,6 @@ task "operator_installed" do |t, args|
 
     #TODO Warn if csv is not found for a subscription.
     csv_names = subscription_names.map do |subscription|
-      second_count = 0
-      wait_count = 120
       csv_created = nil
       resource_created = false
 

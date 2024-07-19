@@ -7,21 +7,14 @@ require "./utils/utils.cr"
 
 desc "Install LitmusChaos"
 task "install_litmus" do |_, args|
-  if args.named["offline"]?
-    Log.info {"install litmus offline mode"}
-    AirGap.image_pull_policy(LitmusManager::OFFLINE_LITMUS_OPERATOR)
-    KubectlClient::Apply.file(LitmusManager::OFFLINE_LITMUS_OPERATOR)
-    KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/chaos_crds.yaml")
-  else
-    #todo in resilience node_drain task
-    #todo get node name 
-    #todo download litmus file then modify it with add_node_selector
-    #todo apply modified litmus file
-    Log.info { "install litmus online mode" }
-    Log.info { "install litmus operator"}
-    KubectlClient::Apply.namespace(LitmusManager::LITMUS_NAMESPACE) 
-    KubectlClient::Apply.file(LitmusManager::ONLINE_LITMUS_OPERATOR)
-  end
+  #todo in resilience node_drain task
+  #todo get node name 
+  #todo download litmus file then modify it with add_node_selector
+  #todo apply modified litmus file
+  Log.info { "install litmus" }
+  KubectlClient::Apply.namespace(LitmusManager::LITMUS_NAMESPACE)
+  Log.info { "install litmus operator"}
+  KubectlClient::Apply.file(LitmusManager::LITMUS_OPERATOR)
 end
 
 desc "Uninstall LitmusChaos"
@@ -33,12 +26,7 @@ task "uninstall_litmus" do |_, args|
       output: stdout = IO::Memory.new,
       error: stderr = IO::Memory.new
   )
-  if args.named["offline"]?
-    Log.info { "install litmus offline mode" }
-    KubectlClient::Delete.file("#{OFFLINE_MANIFESTS_PATH}/litmus-operator-v#{LitmusManager::Version}.yaml")
-  else
-    KubectlClient::Delete.file("https://litmuschaos.github.io/litmus/litmus-operator-v#{LitmusManager::Version}.yaml")
-  end
+  KubectlClient::Delete.file("https://litmuschaos.github.io/litmus/litmus-operator-v#{LitmusManager::Version}.yaml")
   Log.info { "#{stdout}" if check_verbose(args) }
   Log.info { "#{stderr}" if check_verbose(args) }
 end
@@ -50,24 +38,18 @@ module LitmusManager
   # Version = "1.13.8"
   # Version = "3.0.0-beta12"
   NODE_LABEL = "kubernetes.io/hostname"
-  OFFLINE_LITMUS_OPERATOR = "#{OFFLINE_MANIFESTS_PATH}/litmus-operator-v#{LitmusManager::Version}.yaml"
   #https://raw.githubusercontent.com/litmuschaos/chaos-operator/v2.14.x/deploy/operator.yaml
-  # ONLINE_LITMUS_OPERATOR = "https://litmuschaos.github.io/litmus/litmus-operator-v#{LitmusManager::Version}.yaml"
-  ONLINE_LITMUS_OPERATOR = "https://litmuschaos.github.io/litmus/litmus-operator-v#{LitmusManager::Version}.yaml"
+  LITMUS_OPERATOR = "https://litmuschaos.github.io/litmus/litmus-operator-v#{LitmusManager::Version}.yaml"
   # for node drain
   DOWNLOADED_LITMUS_FILE = "litmus-operator-downloaded.yaml"
   MODIFIED_LITMUS_FILE = "litmus-operator-modified.yaml"
   LITMUS_NAMESPACE = "litmus"
+  LITMUS_K8S_DOMAIN = "litmuschaos.io"
 
 
 
-  def self.add_node_selector(node_name, airgap=false )
-    if airgap
-      file = File.read(OFFLINE_LITMUS_OPERATOR)
-
-    else
-      file = File.read(DOWNLOADED_LITMUS_FILE)
-    end
+  def self.add_node_selector(node_name)
+    file = File.read(DOWNLOADED_LITMUS_FILE)
     deploy_index = file.index("kind: Deployment") || 0 
     spec_literal = "spec:"
     template = "\n      nodeSelector:\n        kubernetes.io/hostname: #{node_name}"
@@ -85,70 +67,46 @@ module LitmusManager
     appNodeName_response.to_s
   end
 
+  private def self.get_status_info(chaos_resource, test_name, output_format, namespace) : {Int32, String}
+    status_cmd = "kubectl get #{chaos_resource}.#{LITMUS_K8S_DOMAIN} #{test_name} -n #{namespace} -o '#{output_format}'"
+    Log.info { "Getting litmus status info: #{status_cmd}" }
+    status_code = Process.run("#{status_cmd}", shell: true, output: status_response = IO::Memory.new, error: stderr = IO::Memory.new).exit_status
+    status_response = status_response.to_s
+    Log.info { "status_code: #{status_code}, response: #{status_response}" }
+    {status_code, status_response}
+  end
+
+  private def self.get_status_info_until(chaos_resource, test_name, output_format, timeout, namespace, &block)
+    repeat_with_timeout(timeout: timeout, errormsg: "Litmus response timed-out") do
+      status_code, status_response = get_status_info(chaos_resource, test_name, output_format, namespace)
+      status_code == 0 && yield status_response
+    end
+  end
+
   ## wait_for_test will wait for the completion of litmus test
-  def self.wait_for_test(test_name, chaos_experiment_name,total_chaos_duration,args, namespace : String = "default")
-    ## Maximum wait time is TCD (total chaos duration) + 60s (additional wait time)
-    delay=2
-    timeout="#{total_chaos_duration}".to_i + 60
-    retry=timeout/delay
+  def self.wait_for_test(test_name, chaos_experiment_name, args, namespace : String = "default")
     chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
-    wait_count = 0
-    status_code = -1
-    experimentStatus = ""
-    
-    experimentStatus_cmd = "kubectl get chaosengine.litmuschaos.io #{test_name} -n #{namespace} -o jsonpath='{.status.engineStatus}'"
-    Log.for("wait_for_test").info { "Checking experiment status #{experimentStatus_cmd}" } if check_verbose(args)
+    Log.info { "wait_for_test: #{chaos_result_name}" }
 
-    ## Wait for completion of chaosengine which indicates the completion of chaos
-    until (status_code == 0 && experimentStatus == "Completed") || wait_count >= 1800
-      sleep delay
-      experimentStatus_cmd = "kubectl get chaosengine.litmuschaos.io #{test_name}  -n #{namespace} -o jsonpath='{.status.experiments[0].status}'"
-      Log.for("wait_for_test").info { "Checking experiment status  #{experimentStatus_cmd}" } if check_verbose(args)
-      status_code = Process.run("#{experimentStatus_cmd}", shell: true, output: experimentStatus_response = IO::Memory.new, error: stderr = IO::Memory.new).exit_status
-      Log.for("wait_for_test").info { "status_code: #{status_code}" } if check_verbose(args)
-      Log.for("wait_for_test").info { "Checking experiment status  #{experimentStatus_cmd}" } if check_verbose(args)
-      experimentStatus = experimentStatus_response.to_s
-      Log.info {"#{chaos_experiment_name} experiment status: "+experimentStatus}
-
-      emoji_test_failed= "🗡️💀♻️"
-      Log.info { "experimentStatus #{experimentStatus}"}
-      if (experimentStatus != "Waiting for Job Creation" && experimentStatus != "Running" && experimentStatus != "Completed")
-        Log.info {"#{test_name}: wait_for_test failed."}
-      end
-      wait_count = wait_count + 1
+    get_status_info_until("chaosengine", test_name, "jsonpath={.status.engineStatus}", LITMUS_CHAOS_TEST_TIMEOUT, namespace) do |engineStatus|
+      ["completed", "stopped"].includes?(engineStatus)
     end
 
-    verdict = ""
-    wait_count = 0
-    verdict_cmd = "kubectl get chaosresults.litmuschaos.io #{chaos_result_name}  -n #{namespace} -o jsonpath='{.status.experimentStatus.verdict}'"
-    Log.for("wait_for_test").info { "Checking experiment verdict  #{verdict_cmd}" } if check_verbose(args)
-    ## Check the chaosresult verdict
-    until (status_code == 0 && verdict != "Awaited") || wait_count >= 30
-      sleep delay
-      status_code = Process.run("#{verdict_cmd}", shell: true, output: verdict_response = IO::Memory.new, error: stderr = IO::Memory.new).exit_status
-      Log.for("wait_for_test").info { "status_code: #{status_code}" } if check_verbose(args)
-      Log.for("wait_for_test").info { "verdict: #{verdict_response.to_s}" } if check_verbose(args)
-      verdict = verdict_response.to_s
-      wait_count = wait_count + 1
+    get_status_info_until("chaosresults", chaos_result_name, "jsonpath={.status.experimentStatus.verdict}", GENERIC_OPERATION_TIMEOUT, namespace) do |verdict|
+      verdict != "Awaited"
     end
   end
 
   ## check_chaos_verdict will check the verdict of chaosexperiment
   def self.check_chaos_verdict(chaos_result_name, chaos_experiment_name, args, namespace : String = "default") : Bool
-    verdict_cmd = "kubectl get chaosresults.litmuschaos.io #{chaos_result_name} -n #{namespace} -o jsonpath='{.status.experimentStatus.verdict}'"
-    Log.for("LitmusManager.check_chaos_verdict").debug { "Checking experiment verdict with command: #{verdict_cmd}" }
-    status_code = Process.run("#{verdict_cmd}", shell: true, output: verdict_response = IO::Memory.new, error: stderr = IO::Memory.new).exit_status
-    Log.for("LitmusManager.check_chaos_verdict").debug { "status_code: #{status_code}; verdict: #{verdict_response.to_s}" }
-    verdict = verdict_response.to_s
+    _, verdict = get_status_info("chaosresult", chaos_result_name, "jsonpath={.status.experimentStatus.verdict}", namespace)
 
-    emoji_test_failed= "🗡️💀♻️"
     if verdict == "Pass"
       return true
     else
       Log.for("LitmusManager.check_chaos_verdict#details").debug do
-        verdict_details_cmd = "kubectl get chaosresults.litmuschaos.io #{chaos_result_name} -n #{namespace} -o json"
-        status_code = Process.run("#{verdict_details_cmd}", shell: true, output: verdict_details_response = IO::Memory.new, error: stderr = IO::Memory.new).exit_status
-        "#{verdict_details_response.to_s}"
+        status_code, verdict_details_response = get_status_info("chaosresult", chaos_result_name, "json", namespace)
+        "#{verdict_details_response}"
       end
 
       Log.for("LitmusManager.check_chaos_verdict").info {"#{chaos_experiment_name} chaos test failed: #{chaos_result_name}, verdict: #{verdict}"}

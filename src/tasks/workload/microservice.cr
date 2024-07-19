@@ -312,7 +312,7 @@ task "single_process_type" do |t, args|
       case kind 
       when  "deployment","statefulset","pod","replicaset", "daemonset"
         resource_yaml = KubectlClient::Get.resource(resource[:kind], resource[:name], resource[:namespace])
-        pods = KubectlClient::Get.pods_by_resource(resource_yaml)
+        pods = KubectlClient::Get.pods_by_resource(resource_yaml, resource[:namespace])
         containers = KubectlClient::Get.resource_containers(kind, resource[:name], resource[:namespace])
         pods.map do |pod|
           pod_name = pod.dig("metadata", "name")
@@ -372,7 +372,8 @@ task "single_process_type" do |t, args|
 
                   verified = KernelIntrospection::K8s::Node.verify_single_proc_tree(ppid, 
                                                                                     status_name, 
-                                                                                    statuses)
+                                                                                    statuses,
+                                                                                    SPECIALIZED_INIT_SYSTEMS)
                   unless verified  
                     Log.for(t.name).info { "multiple proc types detected verified: #{verified}" }
                     fail_msg = "resource: #{resource}, pod #{pod_name} and container: #{container_name} has more than one process type (#{statuses.map{|x|x["cmdline"]?}.compact.uniq.join(", ")})"
@@ -491,8 +492,8 @@ task "sig_term_handled" do |t, args|
           pod_namespace = pod.dig("metadata", "namespace").as_s
           Log.info { "pod_name: #{pod_name}" }
 
-          # Wait for a pod to be available. Only wait for 20 seconds.
-          KubectlClient::Get.wait_for_resource_availability("pod", pod_name, pod_namespace, 60)
+          # Wait for a pod to be available. Only wait for 60 seconds.
+          KubectlClient::Get.wait_for_resource_availability("pod", pod_name, pod_namespace, GENERIC_OPERATION_TIMEOUT)
 
           status = pod["status"]
           if status["containerStatuses"]?

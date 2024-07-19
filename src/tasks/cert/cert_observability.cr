@@ -4,19 +4,22 @@ require "file_utils"
 require "colorize"
 require "totem"
 require "../utils/utils.cr"
+require "./cert_utils.cr"
 
 desc "In order to maintain, debug, and have insight into a protected environment, its infrastructure elements must have the property of being observable. This means these elements must externalize their internal states in some way that lends itself to metrics, tracing, and logging."
-task "cert_observability", ["cert_observability_title", "log_output", "prometheus_traffic", "open_metrics", "routed_logs", "tracing"] do |_, args|
-# task "cert_observability", ["cert_observability_title", "prometheus_traffic", "open_metrics", "routed_logs", "tracing"] do |_, args|
-  # stdout_score("observability", "Observability and Diagnostics")
-  stdout_score(["observability", "cert"], "Observability and Diagnostics")
+task "cert_observability" do |t, args|
+  puts "Observability and Diagnostics Tests".colorize(Colorize::ColorRGB.new(0, 255, 255))
+
+  exclude = get_excluded_tasks(args)
+  essential_only = args.raw.includes? "essential"
+  tags = ["observability", "cert"]
+  tags << "essential" if essential_only
+
+  invoke_tasks_by_tag_list(t, tags, exclude_tasks: exclude)
+
+  cert_stdout_score(tags, "Observability and Diagnostics", exclude_warning: !exclude.empty?)
   case "#{ARGV.join(" ")}" 
   when /cert_observability/
     stdout_info "Results have been saved to #{CNFManager::Points::Results.file}".colorize(:green)
   end
 end
-
-task "cert_observability_title" do |_, args|
-  puts "Observability and Diagnostics Tests".colorize(Colorize::ColorRGB.new(0, 255, 255))
-end
-

@@ -10,26 +10,30 @@ require "semantic_version"
 require "./dockerd.cr"
 require "./kyverno.cr"
 require "./http_helper.cr"
+require "./timeouts.cr"
 require "ecr"
 
 module ShellCmd
-  def self.run(cmd, log_prefix, force_output=false)
-    Log.info { "#{log_prefix} command: #{cmd}" }
+  def self.run(cmd, log_prefix="ShellCmd.run", force_output=false, joined_output=false)
+    log = Log.for(log_prefix)
+    log.info { "command: #{cmd}" }
+    output = IO::Memory.new
+    stderr = joined_output ? output : IO::Memory.new
     status = Process.run(
       cmd,
       shell: true,
-      output: output = IO::Memory.new,
-      error: stderr = IO::Memory.new
+      output: output,
+      error: stderr
     )
     if force_output == false
-      Log.debug { "#{log_prefix} output: #{output.to_s}" }
+      log.debug { "output: #{output.to_s}" }
     else
-      Log.info { "#{log_prefix} output: #{output.to_s}" }
+      log.info { "output: #{output.to_s}" }
     end
 
     # Don't have to output log line if stderr is empty
-    if stderr.to_s.size > 1
-      Log.info { "#{log_prefix} stderr: #{stderr.to_s}" }
+    if !joined_output && stderr.to_s.size > 1
+      log.info { "stderr: #{stderr.to_s}" }
     end
     {status: status, output: output.to_s, error: stderr.to_s}
   end
@@ -40,15 +44,25 @@ def ensure_kubeconfig!
   kubeconfig_path = File.join(ENV["HOME"], ".kube", "config")
   
   if ENV.has_key?("KUBECONFIG") && File.exists?(ENV["KUBECONFIG"])
-    puts "KUBECONFIG is already set.".colorize(:green)
+    stdout_success "KUBECONFIG is already set."
   elsif File.exists?(kubeconfig_path)
     ENV["KUBECONFIG"] = kubeconfig_path
-    puts "KUBECONFIG is set as #{ENV["KUBECONFIG"]}.".colorize(:green)
+    stdout_success "KUBECONFIG is set as #{ENV["KUBECONFIG"]}."
+  elsif !ENV.has_key?("KUBECONFIG")
+    stdout_failure "KUBECONFIG is not set and default path #{kubeconfig_path} does not exist. Please set KUBECONFIG to an existing config file, i.e. 'export KUBECONFIG=path-to-your-kubeconfig'"
+    exit 1
   else
-    puts "KUBECONFIG is not set. Please set a KUBECONFIG, i.p 'export KUBECONFIG=path-to-your-kubeconfig'".colorize(:red)
-    raise "KUBECONFIG is not set. Please set a KUBECONFIG, i.p 'export KUBECONFIG=path-to-your-kubeconfig'"
+    stdout_failure "KUBECONFIG is set to #{ENV["KUBECONFIG"]} path and it does not exist. Please set KUBECONFIG to an existing config file, i.e. 'export KUBECONFIG=path-to-your-kubeconfig'"
+    exit 1
   end
-
+  
+  # Check if cluster is up and running with assigned KUBECONFIG variable 
+  cmd = "kubectl get nodes --kubeconfig=#{ENV["KUBECONFIG"]}"
+  exit_code = KubectlClient::ShellCmd.run(cmd, "", false)[:status].exit_status
+  if exit_code != 0
+    stdout_failure "Cluster liveness check failed: '#{cmd}' returned exit code #{exit_code}. Check the cluster and/or KUBECONFIG environment variable."
+    exit 1
+  end
 end
 
 def log_formatter
@@ -79,9 +93,24 @@ end
 
 # this first line necessary to make sure our custom formatter
 # is used in the default error log line also
-Log.setup(Log::Severity::Error, Log::IOBackend.new(formatter: log_formatter))
-Log.setup(loglevel, Log::IOBackend.new(formatter: log_formatter))
+Log.setup(Log::Severity::Error, log_backend)
+Log.setup(loglevel, log_backend)
 
+def log_backend
+  if ENV.has_key?("LOGPATH") || ENV.has_key?("LOG_PATH")
+    log_file = ENV.has_key?("LOGPATH") ? ENV["LOGPATH"] : ENV["LOG_PATH"]
+  else
+    log_file = ""
+  end
+  
+  if log_file.empty?
+    backend = Log::IOBackend.new(formatter: log_formatter)
+  else
+    log_io = File.open(log_file, "a")
+    backend = Log::IOBackend.new(io: log_io, formatter: log_formatter)
+  end
+  backend
+end
 
 def loglevel
   levelstr = "" # default to unset
@@ -305,13 +334,15 @@ def upsert_decorated_task(task, status : CNFManager::ResultStatus, message, star
   cat_emoji = CNFManager::Points.task_emoji_by_task(task)
   case status.to_basic
   when CNFManager::ResultStatus::Passed
-    upsert_passed_task(task, "✔️  #{cat_emoji}PASSED: #{message} #{tc_emoji}", start_time)
+    upsert_passed_task(task, "✔️  #{cat_emoji}PASSED: [#{task}] #{message} #{tc_emoji}", start_time)
   when CNFManager::ResultStatus::Failed
-    upsert_failed_task(task, "✖️  #{cat_emoji}FAILED: #{message} #{tc_emoji}", start_time)
+    upsert_failed_task(task, "✖️  #{cat_emoji}FAILED: [#{task}] #{message} #{tc_emoji}", start_time)
   when CNFManager::ResultStatus::Skipped
-    upsert_skipped_task(task, "⏭️  #{cat_emoji}SKIPPED: #{message} #{tc_emoji}", start_time)
+    upsert_skipped_task(task, "⏭️  #{cat_emoji}SKIPPED: [#{task}] #{message} #{tc_emoji}", start_time)
   when CNFManager::ResultStatus::NA
-    upsert_na_task(task, "⏭️  #{cat_emoji}N/A: #{message} #{tc_emoji}", start_time)
+    upsert_na_task(task, "⏭️  #{cat_emoji}N/A: [#{task}] #{message} #{tc_emoji}", start_time)
+  when CNFManager::ResultStatus::Error
+    upsert_error_task(task, "💥  #{cat_emoji}ERROR: [#{task}] #{message}", start_time)
   end
 end
 
@@ -338,6 +369,12 @@ def upsert_na_task(task, message, start_time)
   stdout_warning message
   message
 end
+
+def upsert_error_task(task, message, start_time)
+  CNFManager::Points.upsert_task(task, ERROR, CNFManager::Points.task_points(task, CNFManager::ResultStatus::Error), start_time)
+   stdout_error message
+   message
+ end
 
 def upsert_dynamic_task(task, status : CNFManager::ResultStatus, message, start_time)
   CNFManager::Points.upsert_task(task, status.to_s.downcase, CNFManager::Points.task_points(task, status), start_time)
@@ -382,6 +419,10 @@ def stdout_failure(msg)
   puts msg.colorize(:red)
 end
 
+def stdout_error(msg)
+  puts msg.colorize(Colorize::Color256.new(208))
+end
+
 def stdout_score(test_name)
   stdout_score(test_name, test_name)
 end
@@ -404,7 +445,6 @@ def stdout_score(test_names : Array(String), full_name)
 #{pretty_test_name} results: #{total_passed} of #{max_passed} tests passed
 
 STRING
-
   update_yml("#{CNFManager::Points::Results.file}", "points", total)
   update_yml("#{CNFManager::Points::Results.file}", "maximum_points", max_points)
 
@@ -442,4 +482,9 @@ def version_less_than(v1str, v2str)
   less_than = (v1 <=> v2) == -1
   LOGGING.debug "version_less_than: #{v1} < #{v2}: #{less_than}"
   less_than
+end
+
+def read_version_file(filepath)
+  return File.read(filepath).strip if File.exists?(filepath)
+  nil
 end

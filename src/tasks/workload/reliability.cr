@@ -126,31 +126,21 @@ task "pod_network_latency", ["install_litmus"] do |t, args|
       if test_passed
         Log.info { "Running for: #{spec_labels}"}
         Log.info { "Spec Hash: #{args.named["pod_labels"]?}" }
-        if args.named["offline"]?
-            Log.info { "install resilience offline mode" }
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/lat-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/lat-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/lat-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-network-latency/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-network-latency/rbac.yaml"
-         
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-network-latency/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-network-latency/rbac.yaml"
+        
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
+        KubectlClient::Apply.file(rbac_path)
 
-
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
-
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
-          KubectlClient::Apply.file(rbac_path)
-        end
         #TODO Use Labels to Annotate, not resource["name"]
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "pod-network-latency"
-        total_chaos_duration = "60"
         test_name = "#{resource["name"]}-#{Random::Secure.hex(4)}"
         chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
 
@@ -161,8 +151,7 @@ task "pod_network_latency", ["install_litmus"] do |t, args|
               "#{chaos_experiment_name}",
               app_namespace,
               "#{current_pod_key}",
-              "#{current_pod_value}",
-              total_chaos_duration
+              "#{current_pod_value}"
         ).to_s
         else
           template = ChaosTemplates::PodNetworkLatency.new(
@@ -170,14 +159,13 @@ task "pod_network_latency", ["install_litmus"] do |t, args|
             "#{chaos_experiment_name}",
             app_namespace,
             "#{spec_labels.as_h.first_key}",
-            "#{spec_labels.as_h.first_value}",
-            total_chaos_duration
+            "#{spec_labels.as_h.first_value}"
           ).to_s
         end
 
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+        LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
         test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
       end
     end
@@ -209,28 +197,19 @@ task "pod_network_corruption", ["install_litmus"] do |t, args|
         test_passed = false
       end
       if test_passed
-        if args.named["offline"]?
-          Log.info {"install resilience offline mode"}
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/corr-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/corr-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/corr-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-network-corruption/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-network-corruption/rbac.yaml"
-
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
-
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
-          KubectlClient::Apply.file(rbac_path)
-        end
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-network-corruption/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-network-corruption/rbac.yaml"
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
+        KubectlClient::Apply.file(rbac_path)
+ 
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "pod-network-corruption"
-        total_chaos_duration = "60"
         test_name = "#{resource["name"]}-#{Random.rand(99)}"
         chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
 
@@ -240,12 +219,11 @@ task "pod_network_corruption", ["install_litmus"] do |t, args|
           "#{chaos_experiment_name}",
           app_namespace,
           "#{spec_labels.first_key}",
-          "#{spec_labels.first_value}",
-          total_chaos_duration
+          "#{spec_labels.first_value}"
         ).to_s
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration, args, namespace: app_namespace)
+        LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
         test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name, args, namespace: app_namespace)
       end
     end
@@ -273,28 +251,21 @@ task "pod_network_duplication", ["install_litmus"] do |t, args|
         test_passed = false
       end
       if test_passed
-        if args.named["offline"]?
-          Log.info {"install resilience offline mode"}
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/dup-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/dup-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/dup-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-network-duplication/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-network-duplication/rbac.yaml"
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-network-duplication/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-network-duplication/rbac.yaml"
 
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
 
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
-          KubectlClient::Apply.file(rbac_path)
-        end
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
+        KubectlClient::Apply.file(rbac_path)
+
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "pod-network-duplication"
-        total_chaos_duration = "60"
         test_name = "#{resource["name"]}-#{Random.rand(99)}"
         chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
 
@@ -304,12 +275,11 @@ task "pod_network_duplication", ["install_litmus"] do |t, args|
           "#{chaos_experiment_name}",
           app_namespace,
           "#{spec_labels.first_key}",
-          "#{spec_labels.first_value}",
-          total_chaos_duration
+          "#{spec_labels.first_value}"
         ).to_s
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+        LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
         test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
       end
     end
@@ -335,28 +305,21 @@ task "disk_fill", ["install_litmus"] do |t, args|
         test_passed = false
       end
       if test_passed
-        if args.named["offline"]?
-          Log.info { "install resilience offline mode" }
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/disk-fill-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/disk-fill-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/disk-fill-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/disk-fill/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/disk-fill/rbac.yaml"
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/disk-fill/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/disk-fill/rbac.yaml"
 
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
 
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
-          KubectlClient::Apply.file(rbac_path)
-        end
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
+        KubectlClient::Apply.file(rbac_path)
+
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "disk-fill"
-        disk_fill_time = "100"
         test_name = "#{resource["name"]}-#{Random.rand(99)}"
         chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
 
@@ -372,7 +335,7 @@ task "disk_fill", ["install_litmus"] do |t, args|
         ).to_s
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(test_name, chaos_experiment_name, disk_fill_time, args, namespace: app_namespace)
+        LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
         test_passed = LitmusManager.check_chaos_verdict(chaos_result_name, chaos_experiment_name, args, namespace: app_namespace)
       end
       test_passed
@@ -426,32 +389,24 @@ task "pod_delete", ["install_litmus"] do |t, args|
       if test_passed
         Log.info { "Running for: #{spec_labels}"}
         Log.info { "Spec Hash: #{args.named["pod_labels"]?}" }
-        if args.named["offline"]?
-          Log.info { "install resilience offline mode" }
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/pod-delete-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-delete-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-delete-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-delete/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-delete/rbac.yaml"
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-delete/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-delete/rbac.yaml"
 
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
 
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
 
 
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
-          KubectlClient::Apply.file(rbac_path)
-        end
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        KubectlClient::Apply.file(rbac_path)
 
         Log.info { "resource: #{resource["name"]}" }
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "pod-delete"
-        total_chaos_duration = "30"
         target_pod_name = ""
         test_name = "#{resource["name"]}-#{Random.rand(99)}" 
         chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
@@ -464,7 +419,6 @@ task "pod_delete", ["install_litmus"] do |t, args|
           app_namespace,
           "#{current_pod_key}",
           "#{current_pod_value}",
-          total_chaos_duration,
           target_pod_name
         ).to_s
       else
@@ -474,7 +428,6 @@ task "pod_delete", ["install_litmus"] do |t, args|
           app_namespace,
           "#{spec_labels.as_h.first_key}",
           "#{spec_labels.as_h.first_value}",
-          total_chaos_duration,
           target_pod_name
         ).to_s
       end
@@ -482,7 +435,7 @@ task "pod_delete", ["install_litmus"] do |t, args|
         Log.info { "template: #{template}" }
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+        LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
       end
       test_passed=LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
     end
@@ -510,28 +463,21 @@ task "pod_memory_hog", ["install_litmus"] do |t, args|
         test_passed = false
       end
       if test_passed
-        if args.named["offline"]?
-          Log.info { "install resilience offline mode" }
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/pod-memory-hog-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-memory-hog-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-memory-hog-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-memory-hog/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-memory-hog/rbac.yaml"
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-memory-hog/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-memory-hog/rbac.yaml"
 
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
 
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
-          KubectlClient::Apply.file(rbac_path)
-        end
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
+        KubectlClient::Apply.file(rbac_path)
+
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "pod-memory-hog"
-        total_chaos_duration = "60"
         target_pod_name = ""
         test_name = "#{resource["name"]}-#{Random.rand(99)}" 
         chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
@@ -543,13 +489,12 @@ task "pod_memory_hog", ["install_litmus"] do |t, args|
           app_namespace,
           "#{spec_labels.first_key}",
           "#{spec_labels.first_value}",
-          total_chaos_duration,
           target_pod_name
         ).to_s
 
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+        LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
         test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
       end
       test_passed
@@ -576,28 +521,21 @@ task "pod_io_stress", ["install_litmus"] do |t, args|
         test_passed = false
       end
       if test_passed
-        if args.named["offline"]?
-          Log.info { "install resilience offline mode" }
-          AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/pod-io-stress-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-io-stress-experiment.yaml")
-          KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-io-stress-rbac.yaml")
-        else
-          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-io-stress/fault.yaml"
-          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-io-stress/rbac.yaml"
+        experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-io-stress/fault.yaml"
+        rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-io-stress/rbac.yaml"
 
-          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+        experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+        KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
 
-          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-          rbac_yaml = File.read(rbac_path)
-          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-          File.write(rbac_path, rbac_yaml)
-          KubectlClient::Apply.file(rbac_path)
-        end
+        rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+        rbac_yaml = File.read(rbac_path)
+        rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+        File.write(rbac_path, rbac_yaml)
+        KubectlClient::Apply.file(rbac_path)
+
         KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
         chaos_experiment_name = "pod-io-stress"
-        total_chaos_duration = "120"
         target_pod_name = ""
         chaos_test_name = "#{resource["name"]}-#{Random.rand(99)}" 
         chaos_result_name = "#{chaos_test_name}-#{chaos_experiment_name}"
@@ -609,13 +547,12 @@ task "pod_io_stress", ["install_litmus"] do |t, args|
           app_namespace,
           "#{spec_labels.first_key}",
           "#{spec_labels.first_value}",
-          total_chaos_duration,
           target_pod_name
         ).to_s
 
         File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
         KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-        LitmusManager.wait_for_test(chaos_test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+        LitmusManager.wait_for_test(chaos_test_name, chaos_experiment_name, args, namespace: app_namespace)
         test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
       end
     end
@@ -649,28 +586,21 @@ task "pod_dns_error", ["install_litmus"] do |t, args|
           test_passed = false
         end
         if test_passed
-          if args.named["offline"]?
-              Log.info { "install resilience offline mode" }
-            AirGap.image_pull_policy("#{OFFLINE_MANIFESTS_PATH}/pod-dns-error-experiment.yaml")
-            KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-dns-error-experiment.yaml")
-            KubectlClient::Apply.file("#{OFFLINE_MANIFESTS_PATH}/pod-dns-error-rbac.yaml")
-          else
-            experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-dns-error/fault.yaml"
-            rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-dns-error/rbac.yaml"
+          experiment_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::Version}/faults/kubernetes/pod-dns-error/fault.yaml"
+          rbac_url = "https://raw.githubusercontent.com/litmuschaos/chaos-charts/#{LitmusManager::RBAC_VERSION}/charts/generic/pod-dns-error/rbac.yaml"
 
-            experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
-            KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
+          experiment_path = LitmusManager.download_template(experiment_url, "#{t.name}_experiment.yaml")
+          KubectlClient::Apply.file(experiment_path, namespace: app_namespace)
 
-            rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
-            rbac_yaml = File.read(rbac_path)
-            rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
-            File.write(rbac_path, rbac_yaml)
-            KubectlClient::Apply.file(rbac_path)
-          end
+          rbac_path = LitmusManager.download_template(rbac_url, "#{t.name}_rbac.yaml")
+          rbac_yaml = File.read(rbac_path)
+          rbac_yaml = rbac_yaml.gsub("namespace: default", "namespace: #{app_namespace}")
+          File.write(rbac_path, rbac_yaml)
+          KubectlClient::Apply.file(rbac_path)
+
           KubectlClient::Annotate.run("--overwrite -n #{app_namespace} deploy/#{resource["name"]} litmuschaos.io/chaos=\"true\"")
 
           chaos_experiment_name = "pod-dns-error"
-          total_chaos_duration = "120"
           target_pod_name = ""
           test_name = "#{resource["name"]}-#{Random.rand(99)}" 
           chaos_result_name = "#{test_name}-#{chaos_experiment_name}"
@@ -681,13 +611,12 @@ task "pod_dns_error", ["install_litmus"] do |t, args|
             "#{chaos_experiment_name}",
             app_namespace,
             "#{spec_labels.first_key}",
-            "#{spec_labels.first_value}",
-            total_chaos_duration,
+            "#{spec_labels.first_value}"
           ).to_s
 
           File.write("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml", template)
           KubectlClient::Apply.file("#{destination_cnf_dir}/#{chaos_experiment_name}-chaosengine.yml")
-          LitmusManager.wait_for_test(test_name,chaos_experiment_name,total_chaos_duration,args, namespace: app_namespace)
+          LitmusManager.wait_for_test(test_name, chaos_experiment_name, args, namespace: app_namespace)
           test_passed = LitmusManager.check_chaos_verdict(chaos_result_name,chaos_experiment_name,args, namespace: app_namespace)
         end
       end

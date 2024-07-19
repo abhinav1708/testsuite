@@ -41,7 +41,6 @@ end
 
 desc "Does the CNF emit prometheus traffic"
 task "prometheus_traffic" do |t, args|
-  next if args.named["offline"]?
   task_response = CNFManager::Task.task_runner(args, task: t) do |args, config|
     release_name = config.cnf_config[:release_name]
     destination_cnf_dir = config.cnf_config[:destination_cnf_dir] 
@@ -96,7 +95,7 @@ task "prometheus_traffic" do |t, args|
       prom_cnf_match = CNFManager.workload_resource_test(args, config) do |resource_name, container, initialized|
         ip_match = false
         resource = KubectlClient::Get.resource(resource_name[:kind], resource_name[:name], resource_name[:namespace])
-        pods = KubectlClient::Get.pods_by_resource(resource)
+        pods = KubectlClient::Get.pods_by_resource(resource, resource_name[:namespace])
         pods.each do |pod|
           pod_ips = pod.dig("status", "podIPs")
           Log.info { "pod_ips: #{pod_ips}"}
@@ -159,7 +158,6 @@ end
 
 desc "Does the CNF emit prometheus open metric compatible traffic"
 task "open_metrics", ["prometheus_traffic"] do |t, args|
-  next if args.named["offline"]?
   task_response = CNFManager::Task.task_runner(args, task: t) do |args, config|
     release_name = config.cnf_config[:release_name]
     configmap = KubectlClient::Get.configmap("cnf-testsuite-#{release_name}-open-metrics")
@@ -181,44 +179,33 @@ end
 
 desc "Are the CNF's logs captured by a logging system"
 task "routed_logs", ["install_cluster_tools"] do |t, args|
-  next if args.named["offline"]?
   task_response = CNFManager::Task.task_runner(args, task: t) do |args, config|
-    fluentd_match = FluentD.match()
-    fluentbit_match = FluentBit.match()
-    fluentbitBitnami_match = FluentDBitnami.match()
+    match = FluentManager.find_active_match
+    unless match
+      next CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Skipped, "Fluentd or FluentBit not configured")
+    end
 
-    Log.info { "fluentd match: #{fluentd_match}" }
-    Log.info { "fluentbit match: #{fluentbit_match}" }
-    Log.info { "fluentbitBitnami_match match: #{fluentbitBitnami_match}" }
-    if fluentd_match[:found] || fluentbit_match[:found] || fluentbitBitnami_match[:found]
-        all_resourced_logged = CNFManager.workload_resource_test(args, config) do |resource_name, container, initialized|
-          resource_logged = true 
-          resource = KubectlClient::Get.resource(resource_name[:kind], resource_name[:name], resource_name[:namespace])
-          pods = KubectlClient::Get.pods_by_resource(resource, namespace: resource_name[:namespace])
-          pods.each do |pod|
-            # if any pod/container is not monitored by fluentd or fluentbit, fail
-            if resource_logged
-              if fluentd_match[:found]
-                resource_logged = FluentD.app_tailed_by_fluentd?(pod.dig("metadata", "name"), fluentd_match)
-              end
-              if fluentbit_match[:found]
-                resource_logged = FluentBit.app_tailed?(pod.dig("metadata", "name"), fluentbit_match)
-              end
-              if fluentbitBitnami_match[:found]
-                resource_logged = FluentDBitnami.app_tailed_by_fluentd?(pod.dig("metadata", "name"), fluentbitBitnami_match)
-              end
-            end
-          end
-          resource_logged
+    all_pods_logged = true
+    CNFManager.workload_resource_test(args, config) do |resource_name, container, initialized|
+      resource = KubectlClient::Get.resource(resource_name[:kind], resource_name[:name], resource_name[:namespace])
+      pods = KubectlClient::Get.pods_by_resource(resource, namespace: resource_name[:namespace])
+  
+      pods.each do |pod|
+        pod_name = pod.dig("metadata", "name").as_s
+        unless FluentManager.pod_tailed?(pod_name, match)
+          Log.info { "Pod #{pod_name} logs are not being captured "}
+          all_pods_logged = false
+          break
         end
-        Log.info { "all_resourced_logged: #{all_resourced_logged}" }
-        if all_resourced_logged
-          CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Passed, "Your cnf's logs are being captured")
-        else
-          CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Failed, "Your cnf's logs are not being captured")
-        end
+      end
+
+      break unless all_pods_logged
+    end
+    
+    if all_pods_logged
+      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Passed, "Your CNF's logs are being captured")
     else
-      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Skipped, "Fluentd or FluentBit not configured")
+      CNFManager::TestcaseResult.new(CNFManager::ResultStatus::Failed, "Your CNF's logs are not being captured")
     end
   end
 end
@@ -227,8 +214,6 @@ desc "Does the CNF install use tracing?"
 task "tracing" do |t, args|
   Log.for(t.name).info { "Running test" }
   Log.for(t.name).info { "tracing args: #{args.inspect}" }
-
-  next if args.named["offline"]?
 
   cnf_config_ok = check_cnf_config(args) || CNFManager.destination_cnfs_exist?
   CNFManager::Task.task_runner(args, task: t) do |args, config|
@@ -257,4 +242,3 @@ task "tracing" do |t, args|
     end
   end
 end
-

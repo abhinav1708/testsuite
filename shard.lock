@@ -1,9 +1,5 @@
 version: 2.0
 shards:
-  airgap:
-    path: utils/airgap
-    version: 0.1.0
-
   ameba:
     git: https://github.com/crystal-ameba/ameba.git
     version: 1.3.1
@@ -42,11 +38,11 @@ shards:
 
   k8s_kernel_introspection:
     git: https://github.com/cnf-testsuite/k8s_kernel_introspection.git
-    version: 1.0.1
+    version: 1.0.2
 
   k8s_netstat:
     git: https://github.com/cnf-testsuite/k8s_netstat.git
-    version: 1.0.0
+    version: 1.0.1
 
   kernel_introspection:
     git: https://github.com/cnf-testsuite/kernel_introspection.git
@@ -54,7 +50,7 @@ shards:
 
   kubectl_client:
     git: https://github.com/cnf-testsuite/kubectl_client.git
-    version: 1.0.5
+    version: 1.0.7
 
   popcorn:
     git: https://github.com/icyleaf/popcorn.git

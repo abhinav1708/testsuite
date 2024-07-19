@@ -115,6 +115,7 @@ module CNFManager
           test_name = task.as(Sam::Task).name.as(String)
           Log.for(test_name).info { "Starting test" }
           Log.for(test_name).debug { "cnf_config: #{config}" }
+          puts "🎬 Testing: [#{test_name}]"
         end
         ret = yield args, config
         if ret.is_a?(CNFManager::TestcaseResult)
@@ -131,9 +132,10 @@ module CNFManager
         end
         ret
       rescue ex
-          # platform tests don't have a cnf-config
+        # platform tests don't have a cnf-config
         # Set exception key/value in results
         # file to -1
+        test_start_time = Time.utc
         LOGGING.error ex.message
         ex.backtrace.each do |x|
           LOGGING.error x
@@ -145,6 +147,7 @@ module CNFManager
           exit 2
         else
           Log.info { "exception with skipped exit code" }
+          upsert_decorated_task(test_name, CNFManager::ResultStatus::Error, "Unexpected error occurred", test_start_time)
         end
       end
     end
